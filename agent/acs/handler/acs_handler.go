@@ -196,12 +196,10 @@ func NewSession(
 func (acsSession *session) Start() error {
 	// connectToACS channel is used to indicate the intent to connect to ACS
 	// It's processed by the select loop to connect to ACS
-	connectToACS := make(chan struct{})
+	connectToACS := make(chan struct{}, 1)
 	// This is required to trigger the first connection to ACS. Subsequent
 	// connections are triggered by the handleACSError() method
-	go func() {
-		connectToACS <- struct{}{}
-	}()
+	connectToACS <- struct{}{}
 	for {
 		select {
 		case <-connectToACS:
@@ -230,7 +228,7 @@ func (acsSession *session) Start() error {
 				// reconnect immediately
 				seelog.Infof("ACS Websocket connection closed for a valid reason: %v", acsError)
 				acsSession.backoff.Reset()
-				sendEmptyMessageOnChannel(connectToACS)
+				connectToACS <- struct{}{}
 			} else {
 				// Disconnected unexpectedly from ACS, compute backoff duration to
 				// reconnect
@@ -242,7 +240,7 @@ func (acsSession *session) Start() error {
 					// wait duration without any errors, send the message to the channel
 					// to reconnect to ACS
 					seelog.Info("Done waiting; reconnecting to ACS")
-					sendEmptyMessageOnChannel(connectToACS)
+					connectToACS <- struct{}{}
 				} else {
 					// Wait was interrupted. We expect the session to close as canceling
 					// the session context is the only way to end up here. Print a message
@@ -515,12 +513,4 @@ func shouldReconnectWithoutBackoff(acsError error) bool {
 
 func isInactiveInstanceError(acsError error) bool {
 	return acsError != nil && strings.HasPrefix(acsError.Error(), inactiveInstanceExceptionPrefix)
-}
-
-// sendEmptyMessageOnChannel sends an empty message using a go-routine on the
-// specified channel
-func sendEmptyMessageOnChannel(channel chan<- struct{}) {
-	go func() {
-		channel <- struct{}{}
-	}()
 }
